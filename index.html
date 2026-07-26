@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dott Bikes — Mons</title>
+  <title>Dott Bikes</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,6 +32,18 @@
     }
     .title-bar .main  { font-weight: 700; font-size: 15px; }
     .title-bar .sub   { font-size: 13px; color: #555; }
+
+    .city-select {
+      position: absolute; top: 20px; left: 16px; z-index: 1001;
+      background: rgba(255,255,255,.95);
+      padding: 6px 10px;
+      border-radius: 6px;
+      box-shadow: 0 1px 6px rgba(0,0,0,.2);
+      font-size: 14px;
+      border: none;
+      cursor: pointer;
+    }
+
     .legend {
       background: rgba(255,255,255,.95);
       padding: 10px 14px;
@@ -55,19 +67,36 @@
   </style>
 </head>
 <body>
+
+  <select id="citySelect" class="city-select" style="display: none;">
+    <option value="mons">Mons</option>
+    <option value="charleroi">Charleroi</option>
+    <option value="liege">Liège</option>
+    <option value="brussels">Bruxelles</option>
+    <option value="aachen">Aix-La-Chapelle</option>
+  </select>
+
   <div id="title" class="title-bar">
-    <div class="main">Mons&nbsp;: Le point sur Dott</div>
-    <div class="sub">Chargement…</div>
+    <div class="main">Chargement…</div>
+    <div class="sub"></div>
   </div>
   <div id="map"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const API = {
-      bikes:       'https://gbfs.api.ridedott.com/public/v2/mons/free_bike_status.json',
-      geofencing:  'https://gbfs.api.ridedott.com/public/v2/mons/geofencing_zones.json',
-      stations:    'https://gbfs.api.ridedott.com/public/v2/mons/station_information.json',
+    // ── City configuration ───────────────────────────────────────
+    const CITIES = {
+      mons:      { name: 'Mons',             center: [50.454, 3.952],  zoom: 15, boundaryName: 'Mons' },
+      charleroi: { name: 'Charleroi',        center: [50.411, 4.444],  zoom: 13, boundaryName: 'Charleroi' },
+      liege:     { name: 'Liège',            center: [50.641, 5.571],  zoom: 13, boundaryName: 'Liege' },
+      brussels:  { name: 'Bruxelles',        center: [50.847, 4.352],  zoom: 13, boundaryName: 'Brussels' },
     };
+
+    function apiUrl(city, feed) {
+      return `https://gbfs.api.ridedott.com/public/v2/${city}/${feed}.json`;
+    }
+
+    let currentCity = 'mons';
 
     // ── Map ──────────────────────────────────────────────────────
     const map = L.map('map').setView([50.454, 3.952], 15);
@@ -77,7 +106,7 @@
       maxZoom: 19,
     }).addTo(map);
 
-    // ── Legend (counts injected after data loads) ────────────────
+    // ── Legend ───────────────────────────────────────────────────
     function buildLegendHTML(nBikes, nStations, nNoRide, nSpeed) {
       return `
         <div><img src="bicycle.png" style="width:22px;height:22px;vertical-align:middle;margin-right:2px"> Vélos <b>(${nBikes})</b></div>
@@ -98,7 +127,9 @@
       legendEl.innerHTML = buildLegendHTML(nBikes, nStations, nNoRide, nSpeed);
     }
 
-    function updateTitle(nGreen, nRed, nInNoRide) {
+    function updateTitle(cityName, nGreen, nRed, nInNoRide) {
+      document.getElementById('title').querySelector('.main').textContent =
+        cityName + ' : Le point sur Dott';
       document.getElementById('title').querySelector('.sub').innerHTML =
         `<b style="color:#16a34a">${nGreen}</b> vélos bien garés | ` +
         `<b style="color:#dc2626">${nRed}</b> vélos mal garés<br>` +
@@ -111,47 +142,7 @@
     const zoneLayer    = L.layerGroup().addTo(map);
     const rackLayer    = L.layerGroup();  // hidden for now
 
-    // ── Fetch & render ───────────────────────────────────────────
-    async function loadAll() {
-      try {
-        const [bikesRes, zonesRes, stationsRes] = await Promise.all([
-          fetch(API.bikes),
-          fetch(API.geofencing),
-          fetch(API.stations),
-        ]);
-
-        const bikesData    = await bikesRes.json();
-        const zonesData    = await zonesRes.json();
-        const stationsData = await stationsRes.json();
-
-        // Extract no-ride zone polygons for bike proximity check
-        const noRidePolys = [];
-        for (const f of zonesData.data.geofencing_zones.features) {
-          const rules = f.properties?.rules || [];
-          const hasSpeed = rules.some(r => r.maximum_speed_kph != null);
-          if (!hasSpeed && f.properties?.name !== 'Mons') {
-            noRidePolys.push(f.geometry);
-          }
-        }
-
-        const bikeCounts = renderBikes(bikesData.data.bikes, stationsData.data.stations, noRidePolys);
-        const { nNoRide, nSpeed } = renderZones(zonesData.data.geofencing_zones);
-        renderStations(stationsData.data.stations);
-
-        updateTitle(bikeCounts.nGreen, bikeCounts.nRed, bikeCounts.nInNoRide);
-        updateLegend(
-          bikesData.data.bikes.length,
-          stationsData.data.stations.length,
-          nNoRide,
-          nSpeed
-        );
-      } catch (err) {
-        console.error('Failed to load Dott data:', err);
-        updateLegend('?', '?', '?', '?');
-      }
-    }
-
-    // ── Bikes ────────────────────────────────────────────────────
+    // ── Icons ────────────────────────────────────────────────────
     const bikeIconGreen = L.icon({
       iconUrl: 'bicycle-green.png',
       iconSize: [48, 48],
@@ -166,17 +157,15 @@
       tooltipAnchor: [0, -48],
     });
 
-    // Approx meters per degree at Mons latitude (~50.45°)
-    const M_PER_DEG_LAT = 111320;
-    const M_PER_DEG_LON = 111320 * Math.cos(50.45 * Math.PI / 180); // ≈ 70950
-
-    function distMeters(a, b) {
+    // ── Geo helpers ──────────────────────────────────────────────
+    function distMeters(a, b, lat) {
+      const M_PER_DEG_LAT = 111320;
+      const M_PER_DEG_LON = 111320 * Math.cos(lat * Math.PI / 180);
       const dlat = (a.lat - b.lat) * M_PER_DEG_LAT;
       const dlon = (a.lon - b.lon) * M_PER_DEG_LON;
       return Math.sqrt(dlat * dlat + dlon * dlon);
     }
 
-    // Point-in-polygon (ray casting) for [lon, lat] coords
     function pointInPolygon(pt, ring) {
       let inside = false;
       for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -191,7 +180,6 @@
 
     function bikeInNoRideZone(bike, noRidePolys) {
       for (const geom of noRidePolys) {
-        // MultiPolygon: array of polygon arrays, each polygon = array of rings
         const polys = geom.type === 'MultiPolygon' ? geom.coordinates : [geom.coordinates];
         for (const poly of polys) {
           if (pointInPolygon(bike, poly[0])) return true;
@@ -200,14 +188,15 @@
       return false;
     }
 
-    function renderBikes(bikes, stations, noRidePolys) {
+    // ── Renderers ────────────────────────────────────────────────
+    function renderBikes(bikes, stations, noRidePolys, cityLat) {
       bikeLayer.clearLayers();
       let nGreen = 0, nRed = 0, nInNoRide = 0;
 
       for (const b of bikes) {
         let minDist = Infinity;
         for (const s of stations) {
-          const d = distMeters(b, s);
+          const d = distMeters(b, s, cityLat);
           if (d < minDist) minDist = d;
         }
         const farFromStation = minDist > 20;
@@ -244,10 +233,9 @@
       return { nGreen, nRed, nInNoRide };
     }
 
-    // ── Geofencing zones ─────────────────────────────────────────
-    function renderZones(geojson) {
+    function renderZones(geojson, boundaryName) {
       zoneLayer.clearLayers();
-      let nNoRide = 0, nSpeed = 0, nBoundary = 0;
+      let nNoRide = 0, nSpeed = 0;
 
       for (const feature of geojson.features) {
         const rules = feature.properties?.rules || [];
@@ -256,15 +244,14 @@
 
         let style, tooltip, opts;
 
-        if (name === 'Mons') {
-          nBoundary++;
+        if (name === boundaryName) {
           style = {
             color: '#000',
             weight: 2,
             fillColor: 'transparent',
             fillOpacity: 0,
           };
-          tooltip = 'Zone de service Mons';
+          tooltip = 'Zone de service';
           opts = { style, interactive: false };
         } else if (hasSpeedLimit) {
           nSpeed++;
@@ -302,10 +289,9 @@
         });
       }
 
-      return { nNoRide, nSpeed, nBoundary };
+      return { nNoRide, nSpeed };
     }
 
-    // ── Stations ─────────────────────────────────────────────────
     function renderStations(stations) {
       stationLayer.clearLayers();
       for (const s of stations) {
@@ -328,133 +314,64 @@
       }
     }
 
-    // ── Bicycle racks (OpenStreetMap, statically embedded) ───────
-    const RACKS = [
-      {"lat":50.4538198,"lon":3.9520063,"capacity":"8"},
-      {"lat":50.4480284,"lon":3.9500659,"capacity":"4"},
-      {"lat":50.4480861,"lon":3.9492231,"capacity":"4"},
-      {"lat":50.4487923,"lon":3.95115,"capacity":"6"},
-      {"lat":50.4575405,"lon":3.9307218,"capacity":null},
-      {"lat":50.4576228,"lon":3.962167,"capacity":"6"},
-      {"lat":50.458088,"lon":3.9514725,"capacity":"8"},
-      {"lat":50.4613787,"lon":3.958313,"capacity":"4"},
-      {"lat":50.4620688,"lon":3.9575523,"capacity":"4"},
-      {"lat":50.4618901,"lon":3.9580951,"capacity":"4"},
-      {"lat":50.4663221,"lon":3.9276727,"capacity":null},
-      {"lat":50.4474973,"lon":3.9564078,"capacity":"16"},
-      {"lat":50.4562541,"lon":3.9757437,"capacity":"8"},
-      {"lat":50.4716044,"lon":3.95643,"capacity":null},
-      {"lat":50.4583748,"lon":3.9557039,"capacity":"6"},
-      {"lat":50.4595762,"lon":3.9562013,"capacity":"8"},
-      {"lat":50.4524818,"lon":3.9499176,"capacity":"8"},
-      {"lat":50.4522966,"lon":3.9539732,"capacity":"6"},
-      {"lat":50.4774582,"lon":3.9520063,"capacity":"4"},
-      {"lat":50.4580824,"lon":3.9360101,"capacity":null},
-      {"lat":50.4490901,"lon":3.9388456,"capacity":"5"},
-      {"lat":50.4392064,"lon":3.9606915,"capacity":"6"},
-      {"lat":50.437452,"lon":3.967724,"capacity":"10"},
-      {"lat":50.452034,"lon":3.9464281,"capacity":"8"},
-      {"lat":50.4458675,"lon":3.9608596,"capacity":null},
-      {"lat":50.4458686,"lon":3.9609222,"capacity":null},
-      {"lat":50.4493746,"lon":3.9511614,"capacity":"4"},
-      {"lat":50.4474809,"lon":3.9482157,"capacity":"4"},
-      {"lat":50.4457379,"lon":3.9566854,"capacity":"8"},
-      {"lat":50.4539662,"lon":3.9455022,"capacity":"6"},
-      {"lat":50.4579644,"lon":3.9307295,"capacity":"18"},
-      {"lat":50.4482572,"lon":3.9449126,"capacity":"8"},
-      {"lat":50.4513871,"lon":3.944062,"capacity":"6"},
-      {"lat":50.4468775,"lon":3.9505975,"capacity":"6"},
-      {"lat":50.4480827,"lon":3.9535895,"capacity":"5"},
-      {"lat":50.4481955,"lon":3.9537343,"capacity":"5"},
-      {"lat":50.4522455,"lon":3.9435782,"capacity":"6"},
-      {"lat":50.450379,"lon":3.9534872,"capacity":"6"},
-      {"lat":50.4501611,"lon":3.9520445,"capacity":"4"},
-      {"lat":50.4517479,"lon":3.9468565,"capacity":"4"},
-      {"lat":50.4518634,"lon":3.9449099,"capacity":"4"},
-      {"lat":50.4512838,"lon":3.9461997,"capacity":"8"},
-      {"lat":50.4530612,"lon":3.9434362,"capacity":"8"},
-      {"lat":50.4525811,"lon":3.9439194,"capacity":"10"},
-      {"lat":50.4522515,"lon":3.9536749,"capacity":"8"},
-      {"lat":50.451898,"lon":3.956701,"capacity":"4"},
-      {"lat":50.4521807,"lon":3.9571806,"capacity":"6"},
-      {"lat":50.4536446,"lon":3.949983,"capacity":"4"},
-      {"lat":50.4549804,"lon":3.9527904,"capacity":"6"},
-      {"lat":50.4594824,"lon":3.9620414,"capacity":null},
-      {"lat":50.4537551,"lon":3.9438633,"capacity":"8"},
-      {"lat":50.4632998,"lon":3.9375394,"capacity":"20"},
-      {"lat":50.452842,"lon":3.9768435,"capacity":"10"},
-      {"lat":50.4609942,"lon":3.9358342,"capacity":"10"},
-      {"lat":50.4616401,"lon":3.9470959,"capacity":"5"},
-      {"lat":50.4528135,"lon":3.956453,"capacity":"4"},
-      {"lat":50.4529424,"lon":3.9571144,"capacity":null},
-      {"lat":50.4532561,"lon":3.9638691,"capacity":"10"},
-      {"lat":50.4527553,"lon":3.9520947,"capacity":"6"},
-      {"lat":50.4590476,"lon":3.9765081,"capacity":"4"},
-      {"lat":50.4502417,"lon":3.9582522,"capacity":null},
-      {"lat":50.4399658,"lon":3.9636478,"capacity":"4"},
-      {"lat":50.4403558,"lon":3.9637745,"capacity":"4"},
-      {"lat":50.4527603,"lon":3.9603293,"capacity":"4"},
-      {"lat":50.4540269,"lon":3.9599359,"capacity":"6"},
-      {"lat":50.4667332,"lon":3.9410277,"capacity":null},
-      {"lat":50.4501292,"lon":3.9567677,"capacity":"8"},
-      {"lat":50.4523405,"lon":3.9457882,"capacity":"4"},
-      {"lat":50.4444933,"lon":3.9475324,"capacity":null},
-      {"lat":50.4578332,"lon":3.9567094,"capacity":null},
-      {"lat":50.4489622,"lon":3.9506328,"capacity":"5"},
-      {"lat":50.4484536,"lon":3.9550295,"capacity":null},
-      {"lat":50.4463977,"lon":3.9577108,"capacity":null},
-      {"lat":50.4773233,"lon":3.9521522,"capacity":"5"},
-      {"lat":50.4512341,"lon":3.9427077,"capacity":"5"},
-      {"lat":50.4554354,"lon":3.9465468,"capacity":null},
-      {"lat":50.4462848,"lon":3.954808,"capacity":null},
-      {"lat":50.4581597,"lon":3.958624,"capacity":"5"},
-      {"lat":50.4447781,"lon":3.9478044,"capacity":null},
-      {"lat":50.4498638,"lon":3.9458697,"capacity":null},
-      {"lat":50.4486263,"lon":3.9454608,"capacity":"10"},
-      {"lat":50.4480415,"lon":3.9475908,"capacity":"10"},
-      {"lat":50.4584375,"lon":3.9516316,"capacity":null},
-      {"lat":50.4568807,"lon":3.9372654,"capacity":"7"},
-      {"lat":50.4567497,"lon":3.937556,"capacity":"9"},
-      {"lat":50.4572795,"lon":3.9363448,"capacity":null},
-      {"lat":50.456648,"lon":3.9379347,"capacity":null},
-      {"lat":50.4537062,"lon":3.9588231,"capacity":"8"},
-      {"lat":50.4576215,"lon":3.9621435,"capacity":"4"},
-      {"lat":50.4576213,"lon":3.9621183,"capacity":"10"},
-      {"lat":50.4552682,"lon":3.9595956,"capacity":"6"},
-      {"lat":50.4509219,"lon":3.9480427,"capacity":"2"},
-      {"lat":50.4508704,"lon":3.9479605,"capacity":"2"},
-      {"lat":50.4494602,"lon":3.9437174,"capacity":null},
-      {"lat":50.4489617,"lon":3.9434957,"capacity":null},
-      {"lat":50.4532242,"lon":3.9491286,"capacity":"6"},
-      {"lat":50.4538348,"lon":3.9454764,"capacity":"6"},
-      {"lat":50.4535499,"lon":3.9451282,"capacity":"4"},
-      {"lat":50.4536062,"lon":3.9451389,"capacity":"4"},
-      {"lat":50.4534443,"lon":3.9454375,"capacity":"4"},
-      {"lat":50.4537768,"lon":3.9520191,"capacity":"4"},
-      {"lat":50.4543389,"lon":3.9518254,"capacity":"6"},
-      {"lat":50.4418166,"lon":3.925628,"capacity":"8"},
-    ];
+    // ── Load city ────────────────────────────────────────────────
+    async function loadCity(cityKey) {
+      currentCity = cityKey;
+      const cfg = CITIES[cityKey];
 
-    function renderRacks(racks) {
-      rackLayer.clearLayers();
-      for (const r of racks) {
-        const cap = r.capacity || '?';
-        const marker = L.circleMarker([r.lat, r.lon], {
-          radius: 4,
-          fillColor: '#8b5cf6',
-          color: '#7c3aed',
-          weight: 1.5,
-          fillOpacity: 0.85,
-        });
-        marker.bindTooltip(
-          `<b>Arceau vélo</b><br>Capacité : ${cap}`,
-          { direction: 'top', offset: [0, 0], opacity: 0.92 }
+      // Update map view
+      map.setView(cfg.center, cfg.zoom);
+
+      // Update selector
+      document.getElementById('citySelect').value = cityKey;
+
+      try {
+        const [bikesRes, zonesRes, stationsRes] = await Promise.all([
+          fetch(apiUrl(cityKey, 'free_bike_status')),
+          fetch(apiUrl(cityKey, 'geofencing_zones')),
+          fetch(apiUrl(cityKey, 'station_information')),
+        ]);
+
+        const bikesData    = await bikesRes.json();
+        const zonesData    = await zonesRes.json();
+        const stationsData = await stationsRes.json();
+
+        // Extract no-ride zone polygons
+        const noRidePolys = [];
+        for (const f of zonesData.data.geofencing_zones.features) {
+          const rules = f.properties?.rules || [];
+          const hasSpeed = rules.some(r => r.maximum_speed_kph != null);
+          if (!hasSpeed && f.properties?.name !== cfg.boundaryName) {
+            noRidePolys.push(f.geometry);
+          }
+        }
+
+        const bikeCounts = renderBikes(bikesData.data.bikes, stationsData.data.stations, noRidePolys, cfg.center[0]);
+        const { nNoRide, nSpeed } = renderZones(zonesData.data.geofencing_zones, cfg.boundaryName);
+        renderStations(stationsData.data.stations);
+
+        updateTitle(cfg.name, bikeCounts.nGreen, bikeCounts.nRed, bikeCounts.nInNoRide);
+        updateLegend(
+          bikesData.data.bikes.length,
+          stationsData.data.stations.length,
+          nNoRide,
+          nSpeed
         );
-        marker.addTo(rackLayer);
+      } catch (err) {
+        console.error('Failed to load data for', cityKey, err);
+        updateLegend('?', '?', '?', '?');
+        document.getElementById('title').querySelector('.main').textContent = cfg.name + ' : Erreur';
+        document.getElementById('title').querySelector('.sub').textContent = '';
       }
-      return racks.length;
     }
-    loadAll();
+
+    // ── City selector ────────────────────────────────────────────
+    document.getElementById('citySelect').addEventListener('change', function () {
+      loadCity(this.value);
+    });
+
+    // ── Kick off ─────────────────────────────────────────────────
+    loadCity('mons');
   </script>
 </body>
 </html>
