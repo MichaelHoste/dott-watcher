@@ -6,6 +6,10 @@ It aims to hold free-floating operators and their users accountable to city regu
 
 ![Dott Watcher screenshot](screenshot.png)
 
+On mobile, the title bar collapses to a compact summary:
+
+![Dott Watcher mobile screenshot](screenshot-mobile.png)
+
 ## What this does
 
 - Displays every Dott bike on a Leaflet map with **green** (well-parked near a station) and **red** (badly parked) markers.
