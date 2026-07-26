@@ -1,6 +1,8 @@
-# dott-watcher
+# Dott Watcher
 
-A real-time map that tracks Dott shared bikes across Belgian cities, highlighting parking behaviour — which bikes are properly parked near stations and which are left on no-ride zones or far from any docking point.
+A real-time map that tracks Dott's shared bikes across Belgian cities, flagging good and bad parking behaviour. The goal is to detect bikes that are properly parked at stations versus those left in no-ride zones or far from any docking point.
+
+It aims to hold free-floating operators and their users accountable to city regulations, for everyone's benefit.
 
 ![Dott Watcher screenshot](screenshot.png)
 
