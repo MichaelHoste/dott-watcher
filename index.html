@@ -34,6 +34,24 @@
     .title-bar .sub   { font-size: 13px; color: #555; }
     .title-bar small  { display: block }
 
+    @media (max-width: 1000px) {
+      .title-bar {
+        margin-left: 100px;
+        margin-right: 100px;
+      }
+      .title-bar .main { font-size: 14px; }
+    }
+
+    @media (max-width: 600px) {
+      .title-bar {
+        margin-left: 8px;
+        margin-right: 8px;
+        padding: 6px 10px;
+        zoom: 1;
+      }
+      .title-bar .main { font-size: 14px; }
+    }
+
     .city-select {
       position: absolute; top: 20px; left: 16px; z-index: 1001;
       background: rgba(255,255,255,.95);
@@ -148,13 +166,24 @@
       legendEl.innerHTML = buildLegendHTML(nBikes, nStations, nNoRide, nSpeed);
     }
 
+    function isMobile() {
+      return window.matchMedia('(max-width: 600px)').matches;
+    }
+
     function updateTitle(cityName, nGreen, nRed, nInNoRide) {
-      document.getElementById('title').querySelector('.main').textContent =
-        cityName + ' : Le point sur Dott';
-      document.getElementById('title').querySelector('.sub').innerHTML =
-        `<b style="color:#16a34a">${nGreen}</b> vélos bien garés | ` +
-        `<b style="color:#dc2626">${nRed}</b> vélos mal garés<br>` +
-        `<small>(dont <b style="color:#dc2626">${nInNoRide}</b> sur zone interdite)</small>`;
+      const titleEl = document.getElementById('title');
+      if (isMobile()) {
+        titleEl.querySelector('.main').innerHTML =
+          `Dott ${cityName} : <b style="color:#16a34a">${nGreen}✓</b> - <b style="color:#dc2626">${nRed}✗</b>`;
+        titleEl.querySelector('.sub').innerHTML = '';
+      } else {
+        titleEl.querySelector('.main').textContent =
+          cityName + ' : Le point sur Dott';
+        titleEl.querySelector('.sub').innerHTML =
+          `<b style="color:#16a34a">${nGreen}</b> vélos bien garés | ` +
+          `<b style="color:#dc2626">${nRed}</b> vélos mal garés<br>` +
+          `<small>(dont <b style="color:#dc2626">${nInNoRide}</b> sur zone interdite)</small>`;
+      }
     }
 
     // ── Layer groups ─────────────────────────────────────────────
